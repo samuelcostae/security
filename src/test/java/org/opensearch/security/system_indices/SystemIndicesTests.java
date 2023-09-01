@@ -50,7 +50,7 @@ import static org.junit.Assert.assertEquals;
  */
 
 public class SystemIndicesTests extends SingleClusterTest {
-    // CS-SUPPRESS-SINGLE: RegexpSingleline See http://github/issues/2553
+    // CS-SUPPRESS-SINGLE: RegexpSingleline See https://github.com/opensearch-project/security/issues/2553
 
     private static final List<String> listOfIndexesToTest = Arrays.asList(".system_index_a", ".system_index_b");
     private static final String matchAllQuery = "{\n\"query\": {\"match_all\": {}}}";
@@ -113,7 +113,6 @@ public class SystemIndicesTests extends SingleClusterTest {
     /**
      * Creates a set of test indices and indexes one document into each index.
      *
-     * @throws Exception
      */
     private void createTestIndicesAndDocs() {
         try (Client tc = getClient()) {
@@ -148,7 +147,7 @@ public class SystemIndicesTests extends SingleClusterTest {
         }
     }
 
-    private RestHelper keyStoreRestHelper() {
+    private RestHelper SuperAdminAuthenticationRestHelper() {
         RestHelper restHelper = restHelper();
         restHelper.keystore = "kirk-keystore.jks";
         restHelper.enableHTTPClientSSL = true;
@@ -157,7 +156,7 @@ public class SystemIndicesTests extends SingleClusterTest {
         return restHelper;
     }
 
-    private RestHelper sslRestHelper() {
+    private RestHelper normalAuthenticationRestHelper() {
         RestHelper restHelper = restHelper();
         restHelper.enableHTTPClientSSL = true;
         return restHelper;
@@ -167,14 +166,14 @@ public class SystemIndicesTests extends SingleClusterTest {
      * Search api tests. Search is a special case.
      ***************************************************************************************************************************/
 
-    private void validateSearchResponse(RestHelper.HttpResponse response, int expectecdHits) throws IOException {
+    private void validateSearchResponse(RestHelper.HttpResponse response, int expectedHits) throws IOException {
         assertEquals(RestStatus.OK.getStatus(), response.getStatusCode());
 
         XContentParser xcp = XContentType.JSON.xContent()
             .createParser(NamedXContentRegistry.EMPTY, LoggingDeprecationHandler.INSTANCE, response.getBody());
         SearchResponse searchResponse = SearchResponse.fromXContent(xcp);
         assertEquals(RestStatus.OK, searchResponse.status());
-        assertEquals(expectecdHits, searchResponse.getHits().getHits().length);
+        assertEquals(expectedHits, searchResponse.getHits().getHits().length);
         assertEquals(0, searchResponse.getFailedShards());
         assertEquals(5, searchResponse.getSuccessfulShards());
     }
@@ -183,7 +182,7 @@ public class SystemIndicesTests extends SingleClusterTest {
     public void testSearchAsSuperAdmin() throws Exception {
         setupSystemIndicesDisabledWithSsl();
         createTestIndicesAndDocs();
-        RestHelper restHelper = keyStoreRestHelper();
+        RestHelper restHelper = SuperAdminAuthenticationRestHelper();
 
         // search system indices
         for (String index : listOfIndexesToTest) {
@@ -199,7 +198,7 @@ public class SystemIndicesTests extends SingleClusterTest {
     public void testSearchAsAdmin() throws Exception {
         setupSystemIndicesDisabledWithSsl();
         createTestIndicesAndDocs();
-        RestHelper restHelper = sslRestHelper();
+        RestHelper restHelper = normalAuthenticationRestHelper();
 
         // search system indices
         for (String index : listOfIndexesToTest) {
@@ -215,7 +214,7 @@ public class SystemIndicesTests extends SingleClusterTest {
     public void testSearchWithSystemIndicesAsSuperAdmin() throws Exception {
         setupSystemIndicesEnabledWithSsl();
         createTestIndicesAndDocs();
-        RestHelper restHelper = keyStoreRestHelper();
+        RestHelper restHelper = SuperAdminAuthenticationRestHelper();
 
         // search system indices
         for (String index : listOfIndexesToTest) {
@@ -231,7 +230,7 @@ public class SystemIndicesTests extends SingleClusterTest {
     public void testSearchWithSystemIndicesShouldFailAsAdmin() throws Exception {
         setupSystemIndicesEnabledWithSsl();
         createTestIndicesAndDocs();
-        RestHelper restHelper = sslRestHelper();
+        RestHelper restHelper = normalAuthenticationRestHelper();
 
         // search system indices
         for (String index : listOfIndexesToTest) {
@@ -256,12 +255,10 @@ public class SystemIndicesTests extends SingleClusterTest {
     }
 
     @Test
-    public void testSearchInOwnSystemIndicesShouldSucceedAsExtensionUser() throws Exception {     // CS-SUPRESS-ALL: Legacy code to be
-                                                                                                  // deleted in Z.Y.X see
-                                                                                                  // http://github/issues/2553
+    public void testSearchInOwnSystemIndicesShouldSucceedAsExtensionUser() throws Exception {
         setupSystemIndicesEnabledWithSsl();
         createTestIndicesAndDocs();
-        RestHelper restHelper = sslRestHelper();
+        RestHelper restHelper = normalAuthenticationRestHelper();
 
         for (String index : listOfIndexesToTest) {
             validateSearchResponse(restHelper.executePostRequest(index + "/_search", matchAllQuery, extensionUserHeader), 0);
@@ -273,7 +270,7 @@ public class SystemIndicesTests extends SingleClusterTest {
     public void testSearchAllWithSystemIndicesShouldFailAsExtensionUser() throws Exception {
         setupSystemIndicesEnabledWithSsl();
         createTestIndicesAndDocs();
-        RestHelper restHelper = sslRestHelper();
+        RestHelper restHelper = normalAuthenticationRestHelper();
 
         RestHelper.HttpResponse response = restHelper.executePostRequest("/_search", matchAllQuery, extensionUserHeader);
         assertEquals(RestStatus.FORBIDDEN.getStatus(), response.getStatusCode());
@@ -293,7 +290,7 @@ public class SystemIndicesTests extends SingleClusterTest {
     public void testDeleteShouldSucceedAsSuperAdmin() throws Exception {
         setupSystemIndicesDisabledWithSsl();
         createTestIndicesAndDocs();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
+        RestHelper keyStoreRestHelper = SuperAdminAuthenticationRestHelper();
 
         for (String index : listOfIndexesToTest) {
             RestHelper.HttpResponse responseDoc = keyStoreRestHelper.executeDeleteRequest(index + "/_doc/document1");
@@ -308,7 +305,7 @@ public class SystemIndicesTests extends SingleClusterTest {
     public void testDeleteDocShouldSucceedAsAdmin() throws Exception {
         setupSystemIndicesDisabledWithSsl();
         createTestIndicesAndDocs();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         // as admin
         for (String index : listOfIndexesToTest) {
@@ -324,7 +321,7 @@ public class SystemIndicesTests extends SingleClusterTest {
     public void testDeleteDocWithSystemIndicesShouldSucceedAsSuperAdmin() throws Exception {
         setupSystemIndicesEnabledWithSsl();
         createTestIndicesAndDocs();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
+        RestHelper keyStoreRestHelper = SuperAdminAuthenticationRestHelper();
 
         for (String index : listOfIndexesToTest) {
             RestHelper.HttpResponse responseDoc = keyStoreRestHelper.executeDeleteRequest(index + "/_doc/document1");
@@ -340,7 +337,7 @@ public class SystemIndicesTests extends SingleClusterTest {
         setupSystemIndicesEnabledWithSsl();
         createTestIndicesAndDocs();
 
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         for (String index : listOfIndexesToTest) {
             RestHelper.HttpResponse responseDoc = sslRestHelper.executeDeleteRequest(index + "/_doc/document1", allAccessUserHeader);
@@ -371,8 +368,8 @@ public class SystemIndicesTests extends SingleClusterTest {
     public void testCloseOpen() throws Exception {
         setupSystemIndicesDisabledWithSsl();
         createTestIndicesAndDocs();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper keyStoreRestHelper = SuperAdminAuthenticationRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         // as super-admin
         for (String index : listOfIndexesToTest) {
@@ -397,7 +394,7 @@ public class SystemIndicesTests extends SingleClusterTest {
     public void testCloseOpenWithSystemIndicesShouldSucceedAsSuperAdmin() throws Exception {
         setupSystemIndicesEnabledWithSsl();
         createTestIndicesAndDocs();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
+        RestHelper keyStoreRestHelper = SuperAdminAuthenticationRestHelper();
 
         for (String index : listOfIndexesToTest) {
             RestHelper.HttpResponse responseClose = keyStoreRestHelper.executePostRequest(index + "/_close", "");
@@ -414,7 +411,7 @@ public class SystemIndicesTests extends SingleClusterTest {
     public void testCloseOpenIndexShouldFailWithSystemIndicesAsAdmin() throws Exception {
         setupSystemIndicesEnabledWithSsl();
         createTestIndicesAndDocs();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         for (String index : listOfIndexesToTest) {
             RestHelper.HttpResponse responseClose = sslRestHelper.executePostRequest(index + "/_close", "", allAccessUserHeader);
@@ -442,7 +439,7 @@ public class SystemIndicesTests extends SingleClusterTest {
     public void testCloseIndexShouldFailAndOpenIndexShouldSucceedWithSystemIndicesAsExtensionUser() throws Exception {
         setupSystemIndicesEnabledWithSsl();
         createTestIndicesAndDocs();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         for (String index : listOfIndexesToTest) {
             RestHelper.HttpResponse responseClose = sslRestHelper.executePostRequest(index + "/_close", "", extensionUserHeader);
@@ -461,8 +458,8 @@ public class SystemIndicesTests extends SingleClusterTest {
     public void testUpdateIndexSettingsWithNormalIndicesShouldSucceed() throws Exception {
         setupSystemIndicesDisabledWithSsl();
         createTestIndicesAndDocs();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper keyStoreRestHelper = SuperAdminAuthenticationRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         String indexSettings = "{\n" + "    \"index\" : {\n" + "        \"refresh_interval\" : null\n" + "    }\n" + "}";
 
@@ -482,8 +479,8 @@ public class SystemIndicesTests extends SingleClusterTest {
     public void testUpdateIndexSettingsWithSystemIndicesShouldFailAsAdmin() throws Exception {
         setupSystemIndicesEnabledWithSsl();
         createTestIndicesAndDocs();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper keyStoreRestHelper = SuperAdminAuthenticationRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         String indexSettings = "{\n" + "    \"index\" : {\n" + "        \"refresh_interval\" : null\n" + "    }\n" + "}";
 
@@ -514,8 +511,8 @@ public class SystemIndicesTests extends SingleClusterTest {
     public void testUpdateMappingsWithNormalIndicesShouldSucceed() throws Exception {
         setupSystemIndicesDisabledWithSsl();
         createTestIndicesAndDocs();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper keyStoreRestHelper = SuperAdminAuthenticationRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         String newMappings = "{\"properties\": {" + "\"user_name\": {" + "\"type\": \"text\"" + "}}}";
 
@@ -536,8 +533,8 @@ public class SystemIndicesTests extends SingleClusterTest {
     public void testUpdateMappingsWithSystemIndicesShouldFailAsAdmin() throws Exception {
         setupSystemIndicesEnabledWithSsl();
         createTestIndicesAndDocs();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper keyStoreRestHelper = SuperAdminAuthenticationRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         String newMappings = "{\"properties\": {" + "\"user_name\": {" + "\"type\": \"text\"" + "}}}";
 
@@ -562,8 +559,8 @@ public class SystemIndicesTests extends SingleClusterTest {
     @Test
     public void testCreateIndexWithNormalIndicesShouldSucceed() throws Exception {
         setupSystemIndicesDisabledWithSsl();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper keyStoreRestHelper = SuperAdminAuthenticationRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         String indexSettings = "{\n"
             + "    \"settings\" : {\n"
@@ -600,7 +597,7 @@ public class SystemIndicesTests extends SingleClusterTest {
     @Test
     public void testCreateIndexWithSystemIndicesShouldSucceedAsSuperAdmin() throws Exception {
         setupSystemIndicesEnabledWithSsl();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
+        RestHelper keyStoreRestHelper = SuperAdminAuthenticationRestHelper();
 
         String indexSettings = "{\n"
             + "    \"settings\" : {\n"
@@ -626,7 +623,7 @@ public class SystemIndicesTests extends SingleClusterTest {
     @Test
     public void testCreateIndexWithSystemIndicesShouldFailAsAdmin() throws Exception {
         setupSystemIndicesEnabledWithSsl();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         String indexSettings = "{\n"
             + "    \"settings\" : {\n"
@@ -662,7 +659,7 @@ public class SystemIndicesTests extends SingleClusterTest {
     @Test
     public void testCreateIndexWithSystemIndicesShouldSucceedWithExtensionRole() throws Exception {
         setupSystemIndicesEnabledWithSsl();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         String indexSettings = "{\n"
             + "    \"settings\" : {\n"
@@ -697,7 +694,7 @@ public class SystemIndicesTests extends SingleClusterTest {
             }
         }
 
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
         // as admin
         for (String index : listOfIndexesToTest) {
             assertEquals(
@@ -724,10 +721,9 @@ public class SystemIndicesTests extends SingleClusterTest {
     }
 
     @Test
-    public void testExtensionIndexAccessShouldSucceedForExtensionUser() throws Exception {     // CS-SUPRESS-ALL: Legacy code to be deleted
-                                                                                               // in Z.Y.X see http://github/issues/1234
+    public void testExtensionIndexAccessShouldSucceedForExtensionUser() throws Exception {
         setupSystemIndicesEnabledWithSsl();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         RestHelper.HttpResponse response = sslRestHelper.executePostRequest(
             ".system_index_a" + "/_doc",
@@ -744,7 +740,7 @@ public class SystemIndicesTests extends SingleClusterTest {
     @Test
     public void testExtensionIndexAccessShouldFailAsDifferentExtensionUser() throws Exception {
         setupSystemIndicesEnabledWithSsl();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         RestHelper.HttpResponse response = sslRestHelper.executePostRequest(
             ".system_index_a" + "/_doc",
@@ -762,7 +758,5 @@ public class SystemIndicesTests extends SingleClusterTest {
             )
         );
     }
-
-    // CS-SUPPRESS-SINGLE
-
+    // CS-ENFORCE-SINGLE
 }

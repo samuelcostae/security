@@ -62,11 +62,11 @@ public class SecurityIndexAccessEvaluatorTest {
     @Mock
     ConfigModelV7.SecurityRoles securityRoles;// = configModelV7.getSecurityRoles();
 
-    public void setupEvaluatorWithSystemIndicesControl(boolean systemIndexPermissionsEnabled) {
+    public void setupEvaluator(boolean systemIndicesAdditionalControlEnabled) {
         evaluator = new SecurityIndexAccessEvaluator(
             Settings.EMPTY.builder()
                 .put("plugins.security.system_indices.indices", ".testSystemIndex")
-                .put(ConfigConstants.SECURITY_SYSTEM_INDICES_ADDITIONAL_CONTROL_ENABLED_KEY, true)
+                .put(ConfigConstants.SECURITY_SYSTEM_INDICES_ADDITIONAL_CONTROL_ENABLED_KEY, systemIndicesAdditionalControlEnabled)
                 .put("plugins.security.system_indices.enabled", true)
                 .build(),
             auditLog,
@@ -87,7 +87,7 @@ public class SecurityIndexAccessEvaluatorTest {
 
     @Test
     public void actionIsNotProtected_noSystemIndexInvolved() {
-        setupEvaluatorWithSystemIndicesControl(true);
+        setupEvaluator(true);
         final Resolved resolved = createResolved(".potato");
 
         // Action
@@ -107,7 +107,7 @@ public class SecurityIndexAccessEvaluatorTest {
 
     @Test
     public void disableCacheOrRealtimeOnSystemIndex() {
-        setupEvaluatorWithSystemIndicesControl(false);
+        setupEvaluator(false);
 
         final SearchRequest searchRequest = mock(SearchRequest.class);
         final MultiGetRequest realtimeRequest = mock(MultiGetRequest.class);
@@ -118,7 +118,6 @@ public class SecurityIndexAccessEvaluatorTest {
         evaluator.evaluate(searchRequest, null, UNPROTECTED_ACTION, resolved, presponse, securityRoles);
         evaluator.evaluate(realtimeRequest, null, UNPROTECTED_ACTION, resolved, presponse, securityRoles);
 
-        // verifyNoInteractions(presponse);
         verify(searchRequest).requestCache(Boolean.FALSE);
         verify(realtimeRequest).realtime(Boolean.FALSE);
 
@@ -130,7 +129,7 @@ public class SecurityIndexAccessEvaluatorTest {
 
     @Test
     public void protectedActionLocalAll() {
-        setupEvaluatorWithSystemIndicesControl(false);
+        setupEvaluator(false);
         final Resolved resolved = Resolved._LOCAL_ALL;
 
         // Action
@@ -147,7 +146,7 @@ public class SecurityIndexAccessEvaluatorTest {
 
     @Test
     public void protectedActionLocalAllWithNewAccessControl() {
-        setupEvaluatorWithSystemIndicesControl(true);
+        setupEvaluator(true);
         final Resolved resolved = Resolved._LOCAL_ALL;
 
         // Action
@@ -164,7 +163,7 @@ public class SecurityIndexAccessEvaluatorTest {
 
     @Test
     public void protectedActionSystemIndex() {
-        setupEvaluatorWithSystemIndicesControl(true);
+        setupEvaluator(true);
         final Resolved resolved = createResolved(".testSystemIndex");
 
         // Action
@@ -181,7 +180,7 @@ public class SecurityIndexAccessEvaluatorTest {
 
     @Test
     public void protectedActionDenyListIndex() {
-        setupEvaluatorWithSystemIndicesControl(true);
+        setupEvaluator(true);
         final Resolved resolved = createResolved(".opendistro_security");
 
         // Action
