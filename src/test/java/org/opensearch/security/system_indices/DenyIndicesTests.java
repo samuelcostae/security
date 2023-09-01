@@ -67,7 +67,6 @@ public class DenyIndicesTests extends SingleClusterTest {
         );
     }
 
-
     private RestHelper superAdminAuthenticationRestHelper() {
         RestHelper restHelper = restHelper();
         restHelper.keystore = "kirk-keystore.jks";

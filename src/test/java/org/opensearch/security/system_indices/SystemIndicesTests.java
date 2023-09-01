@@ -70,7 +70,6 @@ public class SystemIndicesTests extends SingleClusterTest {
 
         Settings systemIndexSettings = Settings.builder()
             .put(ConfigConstants.SECURITY_SYSTEM_INDICES_ENABLED_KEY, false)
-            .put(ConfigConstants.SECURITY_SYSTEM_INDICES_ADDITIONAL_CONTROL_ENABLED_KEY, false)
             .putList(ConfigConstants.SECURITY_SYSTEM_INDICES_KEY, listOfIndexesToTest)
             .put("plugins.security.ssl.http.enabled", true)
             .put("plugins.security.ssl.http.keystore_filepath", FileHelper.getAbsoluteFilePathFromClassPath("node-0-keystore.jks"))
