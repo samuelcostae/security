@@ -13,8 +13,8 @@ opendistro_security_all_access:
       allowed_actions:
         - '*'
 
-extensions_role:
-  description: "ExtensionsRole"
+systemIndices_role:
+  description: "systemIndicesRole"
   cluster_permissions:
     - '*'
   index_permissions:
@@ -24,8 +24,8 @@ extensions_role:
         - '*'
         - 'system:admin/system_index'
 
-extensions_role_c:
-  description: "Limited ExtensionsRole"
+systemIndices_role_c:
+  description: "Limited systemIndicesRole"
   cluster_permissions:
     - '*'
   index_permissions:

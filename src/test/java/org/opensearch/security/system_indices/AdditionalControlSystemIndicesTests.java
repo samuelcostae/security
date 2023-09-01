@@ -17,6 +17,9 @@ import java.util.List;
 
 import org.apache.hc.core5.http.Header;
 import org.apache.hc.core5.http.HttpStatus;
+import org.hamcrest.MatcherAssert;
+import org.hamcrest.Matchers;
+import org.junit.Assert;
 import org.junit.Test;
 
 import org.opensearch.action.admin.cluster.repositories.put.PutRepositoryRequest;
@@ -38,8 +41,6 @@ import org.opensearch.security.test.DynamicSecurityConfig;
 import org.opensearch.security.test.SingleClusterTest;
 import org.opensearch.security.test.helper.file.FileHelper;
 import org.opensearch.security.test.helper.rest.RestHelper;
-
-import static junit.framework.TestCase.assertTrue;
 import static org.junit.Assert.assertEquals;
 
 /**
@@ -47,9 +48,11 @@ import static org.junit.Assert.assertEquals;
  *  Refer:    "plugins.security.system_indices.enabled"
  *            "plugins.security.system_indices.indices";
  */
-public class SystemIndicesTests extends SingleClusterTest {
 
-    private static final List<String> listOfIndexesToTest = Arrays.asList("config1", "config2");
+public class AdditionalControlSystemIndicesTests extends SingleClusterTest {
+    // CS-SUPPRESS-SINGLE: RegexpSingleline See https://github.com/opensearch-project/security/issues/2553
+
+    private static final List<String> systemIndicesToTest = Arrays.asList(".system_index_a", ".system_index_b");
     private static final String matchAllQuery = "{\n\"query\": {\"match_all\": {}}}";
     private static final String allAccessUser = "admin_all_access";
     private static final Header allAccessUserHeader = encodeBasicHeader(allAccessUser, allAccessUser);
@@ -58,32 +61,17 @@ public class SystemIndicesTests extends SingleClusterTest {
         allAccessUser
     );
 
-    private void setupSystemIndicesDisabledWithSsl() throws Exception {
+    private static final String systemIndiceUser = "systemIndices_user";
+    private static final Header systemIndiceUserHeader = encodeBasicHeader(systemIndiceUser, allAccessUser);
+    private static final String systemIndiceUserC = "systemIndices_user_c";
+    private static final Header systemIndiceUserCHeader = encodeBasicHeader(systemIndiceUserC, allAccessUser);
 
-        Settings systemIndexSettings = Settings.builder()
-            .put(ConfigConstants.SECURITY_SYSTEM_INDICES_ENABLED_KEY, false)
-            .putList(ConfigConstants.SECURITY_SYSTEM_INDICES_KEY, listOfIndexesToTest)
-            .put("plugins.security.ssl.http.enabled", true)
-            .put("plugins.security.ssl.http.keystore_filepath", FileHelper.getAbsoluteFilePathFromClassPath("node-0-keystore.jks"))
-            .put("plugins.security.ssl.http.truststore_filepath", FileHelper.getAbsoluteFilePathFromClassPath("truststore.jks"))
-            .put("path.repo", repositoryPath.getRoot().getAbsolutePath())
-            .build();
-        setup(
-            Settings.EMPTY,
-            new DynamicSecurityConfig().setConfig("config_system_indices.yml")
-                .setSecurityRoles("roles_system_indices.yml")
-                .setSecurityInternalUsers("internal_users_system_indices.yml")
-                .setSecurityRolesMapping("roles_mapping_system_indices.yml"),
-            systemIndexSettings,
-            true
-        );
-    }
-
-    private void setupSystemIndicesEnabledWithSsl() throws Exception {
+    private void setupWithAdditionalControlsEnabled() throws Exception {
 
         Settings systemIndexSettings = Settings.builder()
             .put(ConfigConstants.SECURITY_SYSTEM_INDICES_ENABLED_KEY, true)
-            .putList(ConfigConstants.SECURITY_SYSTEM_INDICES_KEY, listOfIndexesToTest)
+            .put(ConfigConstants.SECURITY_SYSTEM_INDICES_ADDITIONAL_CONTROL_ENABLED_KEY, true)
+            .putList(ConfigConstants.SECURITY_SYSTEM_INDICES_KEY, systemIndicesToTest)
             .put("plugins.security.ssl.http.enabled", true)
             .put("plugins.security.ssl.http.keystore_filepath", FileHelper.getAbsoluteFilePathFromClassPath("node-0-keystore.jks"))
             .put("plugins.security.ssl.http.truststore_filepath", FileHelper.getAbsoluteFilePathFromClassPath("truststore.jks"))
@@ -103,11 +91,10 @@ public class SystemIndicesTests extends SingleClusterTest {
     /**
      * Creates a set of test indices and indexes one document into each index.
      *
-     * @throws Exception
      */
     private void createTestIndicesAndDocs() {
         try (Client tc = getClient()) {
-            for (String index : listOfIndexesToTest) {
+            for (String index : systemIndicesToTest) {
                 tc.admin().indices().create(new CreateIndexRequest(index)).actionGet();
                 tc.index(
                     new IndexRequest(index).setRefreshPolicy(WriteRequest.RefreshPolicy.IMMEDIATE)
@@ -120,7 +107,7 @@ public class SystemIndicesTests extends SingleClusterTest {
 
     private void createSnapshots() {
         try (Client tc = getClient()) {
-            for (String index : listOfIndexesToTest) {
+            for (String index : systemIndicesToTest) {
                 tc.admin()
                     .cluster()
                     .putRepository(
@@ -138,7 +125,7 @@ public class SystemIndicesTests extends SingleClusterTest {
         }
     }
 
-    private RestHelper keyStoreRestHelper() {
+    private RestHelper SuperAdminAuthenticationRestHelper() {
         RestHelper restHelper = restHelper();
         restHelper.keystore = "kirk-keystore.jks";
         restHelper.enableHTTPClientSSL = true;
@@ -147,7 +134,7 @@ public class SystemIndicesTests extends SingleClusterTest {
         return restHelper;
     }
 
-    private RestHelper sslRestHelper() {
+    private RestHelper normalAuthenticationRestHelper() {
         RestHelper restHelper = restHelper();
         restHelper.enableHTTPClientSSL = true;
         return restHelper;
@@ -157,58 +144,42 @@ public class SystemIndicesTests extends SingleClusterTest {
      * Search api tests. Search is a special case.
      ***************************************************************************************************************************/
 
-    private void validateSearchResponse(RestHelper.HttpResponse response, int expectecdHits) throws IOException {
+    private void validateSearchResponse(RestHelper.HttpResponse response, int expectedHits) throws IOException {
         assertEquals(RestStatus.OK.getStatus(), response.getStatusCode());
 
         XContentParser xcp = XContentType.JSON.xContent()
             .createParser(NamedXContentRegistry.EMPTY, LoggingDeprecationHandler.INSTANCE, response.getBody());
         SearchResponse searchResponse = SearchResponse.fromXContent(xcp);
         assertEquals(RestStatus.OK, searchResponse.status());
-        assertEquals(expectecdHits, searchResponse.getHits().getHits().length);
+        assertEquals(expectedHits, searchResponse.getHits().getHits().length);
         assertEquals(0, searchResponse.getFailedShards());
         assertEquals(5, searchResponse.getSuccessfulShards());
     }
 
     @Test
     public void testSearchAsSuperAdmin() throws Exception {
-        setupSystemIndicesDisabledWithSsl();
+        setupWithAdditionalControlsEnabled();
         createTestIndicesAndDocs();
-        RestHelper restHelper = keyStoreRestHelper();
+        RestHelper restHelper = SuperAdminAuthenticationRestHelper();
 
         // search system indices
-        for (String index : listOfIndexesToTest) {
+        for (String index : systemIndicesToTest) {
             validateSearchResponse(restHelper.executePostRequest(index + "/_search", matchAllQuery), 1);
         }
 
         // search all indices
         RestHelper.HttpResponse response = restHelper.executePostRequest("/_search", matchAllQuery);
-        assertEquals(RestStatus.OK.getStatus(), response.getStatusCode());
-    }
-
-    @Test
-    public void testSearchAsAdmin() throws Exception {
-        setupSystemIndicesDisabledWithSsl();
-        createTestIndicesAndDocs();
-        RestHelper restHelper = sslRestHelper();
-
-        // search system indices
-        for (String index : listOfIndexesToTest) {
-            validateSearchResponse(restHelper.executePostRequest(index + "/_search", matchAllQuery, allAccessUserHeader), 1);
-        }
-
-        // search all indices
-        RestHelper.HttpResponse response = restHelper.executePostRequest("/_search", matchAllQuery, allAccessUserHeader);
         assertEquals(RestStatus.OK.getStatus(), response.getStatusCode());
     }
 
     @Test
     public void testSearchWithSystemIndicesAsSuperAdmin() throws Exception {
-        setupSystemIndicesEnabledWithSsl();
+        setupWithAdditionalControlsEnabled();
         createTestIndicesAndDocs();
-        RestHelper restHelper = keyStoreRestHelper();
+        RestHelper restHelper = SuperAdminAuthenticationRestHelper();
 
         // search system indices
-        for (String index : listOfIndexesToTest) {
+        for (String index : systemIndicesToTest) {
             validateSearchResponse(restHelper.executePostRequest(index + "/_search", matchAllQuery), 1);
         }
 
@@ -218,13 +189,21 @@ public class SystemIndicesTests extends SingleClusterTest {
     }
 
     @Test
-    public void testSearchWithSystemIndicesAsAdmin() throws Exception {
-        setupSystemIndicesEnabledWithSsl();
+    public void testSearchWithSystemIndicesShouldFailAsAdmin() throws Exception {
+        setupWithAdditionalControlsEnabled();
         createTestIndicesAndDocs();
-        RestHelper restHelper = sslRestHelper();
+        RestHelper restHelper = normalAuthenticationRestHelper();
 
-        for (String index : listOfIndexesToTest) {
-            validateSearchResponse(restHelper.executePostRequest(index + "/_search", matchAllQuery, allAccessUserHeader), 0);
+        // search system indices
+        for (String index : systemIndicesToTest) {
+            RestHelper.HttpResponse response = restHelper.executePostRequest(index + "/_search", matchAllQuery, allAccessUserHeader);
+            assertEquals(RestStatus.FORBIDDEN.getStatus(), response.getStatusCode());
+            MatcherAssert.assertThat(
+                response.getBody(),
+                Matchers.containsStringIgnoringCase(
+                    "\"type\":\"security_exception\",\"reason\":\"no permissions for [] and User [name=admin_all_access, backend_roles=[], requestedTenant=null]\"}"
+                )
+            );
         }
 
         // search all indices
@@ -237,56 +216,61 @@ public class SystemIndicesTests extends SingleClusterTest {
         assertEquals(0, searchResponse.getHits().getHits().length);
     }
 
+    @Test
+    public void testSearchInOwnSystemIndicesShouldSucceedAssystemIndiceUser() throws Exception {
+        setupWithAdditionalControlsEnabled();
+        createTestIndicesAndDocs();
+        RestHelper restHelper = normalAuthenticationRestHelper();
+
+        for (String index : systemIndicesToTest) {
+            validateSearchResponse(restHelper.executePostRequest(index + "/_search", matchAllQuery, systemIndiceUserHeader), 0);
+        }
+
+    }
+
+    @Test
+    public void testSearchAllWithSystemIndicesShouldFailAssystemIndiceUser() throws Exception {
+        setupWithAdditionalControlsEnabled();
+        createTestIndicesAndDocs();
+        RestHelper restHelper = normalAuthenticationRestHelper();
+
+        RestHelper.HttpResponse response = restHelper.executePostRequest("/_search", matchAllQuery, systemIndiceUserHeader);
+        assertEquals(RestStatus.FORBIDDEN.getStatus(), response.getStatusCode());
+        MatcherAssert.assertThat(
+            response.getBody(),
+            Matchers.containsStringIgnoringCase(
+                "\"reason\":\"no permissions for [indices:data/read/search] and User [name=systemIndices_user, backend_roles=[]"
+            )
+        );
+    }
+
     /***************************************************************************************************************************
      * Delete index and Delete doc
      ***************************************************************************************************************************/
 
     @Test
-    public void testDelete() throws Exception {
-        setupSystemIndicesDisabledWithSsl();
+    public void testDeleteShouldSucceedAsSuperAdmin() throws Exception {
+        setupWithAdditionalControlsEnabled();
         createTestIndicesAndDocs();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper keyStoreRestHelper = SuperAdminAuthenticationRestHelper();
 
-        // as super-admin
-        for (String index : listOfIndexesToTest) {
+        for (String index : systemIndicesToTest) {
             RestHelper.HttpResponse responseDoc = keyStoreRestHelper.executeDeleteRequest(index + "/_doc/document1");
             assertEquals(RestStatus.OK.getStatus(), responseDoc.getStatusCode());
 
             RestHelper.HttpResponse responseIndex = keyStoreRestHelper.executeDeleteRequest(index);
-            assertEquals(RestStatus.OK.getStatus(), responseIndex.getStatusCode());
-        }
-        createTestIndicesAndDocs();
-
-        // as admin
-        for (String index : listOfIndexesToTest) {
-            RestHelper.HttpResponse responseDoc = sslRestHelper.executeDeleteRequest(index + "/_doc/document1", allAccessUserHeader);
-            assertEquals(RestStatus.OK.getStatus(), responseDoc.getStatusCode());
-
-            RestHelper.HttpResponse responseIndex = sslRestHelper.executeDeleteRequest(index, allAccessUserHeader);
             assertEquals(RestStatus.OK.getStatus(), responseIndex.getStatusCode());
         }
     }
 
     @Test
-    public void testDeleteWithSystemIndices() throws Exception {
-        setupSystemIndicesEnabledWithSsl();
+    public void testDeleteDocShouldFailAsAdmin() throws Exception {
+        setupWithAdditionalControlsEnabled();
         createTestIndicesAndDocs();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
-        RestHelper sslRestHelper = sslRestHelper();
-
-        // as super-admin
-        for (String index : listOfIndexesToTest) {
-            RestHelper.HttpResponse responseDoc = keyStoreRestHelper.executeDeleteRequest(index + "/_doc/document1");
-            assertEquals(RestStatus.OK.getStatus(), responseDoc.getStatusCode());
-
-            RestHelper.HttpResponse responseIndex = keyStoreRestHelper.executeDeleteRequest(index);
-            assertEquals(RestStatus.OK.getStatus(), responseIndex.getStatusCode());
-        }
-        createTestIndicesAndDocs();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         // as admin
-        for (String index : listOfIndexesToTest) {
+        for (String index : systemIndicesToTest) {
             RestHelper.HttpResponse responseDoc = sslRestHelper.executeDeleteRequest(index + "/_doc/document1", allAccessUserHeader);
             assertEquals(RestStatus.FORBIDDEN.getStatus(), responseDoc.getStatusCode());
 
@@ -295,58 +279,109 @@ public class SystemIndicesTests extends SingleClusterTest {
         }
     }
 
+    @Test
+    public void testDeleteDocWithSystemIndicesShouldSucceedAsSuperAdmin() throws Exception {
+        setupWithAdditionalControlsEnabled();
+        createTestIndicesAndDocs();
+        RestHelper keyStoreRestHelper = SuperAdminAuthenticationRestHelper();
+
+        for (String index : systemIndicesToTest) {
+            RestHelper.HttpResponse responseDoc = keyStoreRestHelper.executeDeleteRequest(index + "/_doc/document1");
+            assertEquals(RestStatus.OK.getStatus(), responseDoc.getStatusCode());
+
+            RestHelper.HttpResponse responseIndex = keyStoreRestHelper.executeDeleteRequest(index);
+            assertEquals(RestStatus.OK.getStatus(), responseIndex.getStatusCode());
+        }
+    }
+
+    @Test
+    public void testDeleteDocWithSystemIndicesShouldFailsAsAdmin() throws Exception {
+        setupWithAdditionalControlsEnabled();
+        createTestIndicesAndDocs();
+
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
+
+        for (String index : systemIndicesToTest) {
+            RestHelper.HttpResponse responseDoc = sslRestHelper.executeDeleteRequest(index + "/_doc/document1", allAccessUserHeader);
+            assertEquals(RestStatus.FORBIDDEN.getStatus(), responseDoc.getStatusCode());
+            MatcherAssert.assertThat(
+                responseDoc.getBody(),
+                Matchers.containsStringIgnoringCase(
+                    "{\"root_cause\":[{\"type\":\"security_exception\",\"reason\":\"no permissions for [] and User [name=admin_all_access, backend_roles=[], requestedTenant=null]\"}]"
+                )
+            );
+
+            RestHelper.HttpResponse responseIndex = sslRestHelper.executeDeleteRequest(index, allAccessUserHeader);
+            assertEquals(RestStatus.FORBIDDEN.getStatus(), responseIndex.getStatusCode());
+            MatcherAssert.assertThat(
+                responseDoc.getBody(),
+                Matchers.containsStringIgnoringCase(
+                    "{\"root_cause\":[{\"type\":\"security_exception\",\"reason\":\"no permissions for [] and User [name=admin_all_access, backend_roles=[], requestedTenant=null]\"}]"
+                )
+            );
+        }
+    }
+
     /***************************************************************************************************************************
      * open and close index
      ***************************************************************************************************************************/
 
     @Test
-    public void testCloseOpen() throws Exception {
-        setupSystemIndicesDisabledWithSsl();
+    public void testCloseOpenWithSystemIndicesShouldSucceedAsSuperAdmin() throws Exception {
+        setupWithAdditionalControlsEnabled();
         createTestIndicesAndDocs();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper keyStoreRestHelper = SuperAdminAuthenticationRestHelper();
 
-        // as super-admin
-        for (String index : listOfIndexesToTest) {
+        for (String index : systemIndicesToTest) {
             RestHelper.HttpResponse responseClose = keyStoreRestHelper.executePostRequest(index + "/_close", "");
             assertEquals(RestStatus.OK.getStatus(), responseClose.getStatusCode());
+            MatcherAssert.assertThat(responseClose.getBody(), Matchers.containsStringIgnoringCase("{\"closed\":true}"));
 
             RestHelper.HttpResponse responseOpen = keyStoreRestHelper.executePostRequest(index + "/_open", "");
             assertEquals(RestStatus.OK.getStatus(), responseOpen.getStatusCode());
         }
 
-        // as admin
-        for (String index : listOfIndexesToTest) {
+    }
+
+    @Test
+    public void testCloseOpenIndexShouldFailWithSystemIndicesAsAdmin() throws Exception {
+        setupWithAdditionalControlsEnabled();
+        createTestIndicesAndDocs();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
+
+        for (String index : systemIndicesToTest) {
             RestHelper.HttpResponse responseClose = sslRestHelper.executePostRequest(index + "/_close", "", allAccessUserHeader);
-            assertEquals(RestStatus.OK.getStatus(), responseClose.getStatusCode());
+            assertEquals(RestStatus.FORBIDDEN.getStatus(), responseClose.getStatusCode());
+            MatcherAssert.assertThat(
+                responseClose.getBody(),
+                Matchers.containsStringIgnoringCase(
+                    "{\"type\":\"security_exception\",\"reason\":\"no permissions for [] and User [name=admin_all_access, backend_roles=[], requestedTenant=null]\"}"
+                )
+            );
 
             RestHelper.HttpResponse responseOpen = sslRestHelper.executePostRequest(index + "/_open", "", allAccessUserHeader);
-            assertEquals(RestStatus.OK.getStatus(), responseOpen.getStatusCode());
+            assertEquals(RestStatus.FORBIDDEN.getStatus(), responseOpen.getStatusCode());
+            MatcherAssert.assertThat(
+                responseOpen.getBody(),
+                Matchers.containsStringIgnoringCase(
+                    "{\"type\":\"security_exception\",\"reason\":\"no permissions for [] and User [name=admin_all_access, backend_roles=[], requestedTenant=null]\"}"
+                )
+            );
+
         }
     }
 
     @Test
-    public void testCloseOpenWithSystemIndices() throws Exception {
-        setupSystemIndicesEnabledWithSsl();
+    public void testCloseIndexShouldFailAndOpenIndexShouldSucceedWithSystemIndicesAssystemIndiceUser() throws Exception {
+        setupWithAdditionalControlsEnabled();
         createTestIndicesAndDocs();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
-        // as super-admin
-        for (String index : listOfIndexesToTest) {
-            RestHelper.HttpResponse responseClose = keyStoreRestHelper.executePostRequest(index + "/_close", "");
+        for (String index : systemIndicesToTest) {
+            RestHelper.HttpResponse responseClose = sslRestHelper.executePostRequest(index + "/_close", "", systemIndiceUserHeader);
             assertEquals(RestStatus.OK.getStatus(), responseClose.getStatusCode());
 
-            RestHelper.HttpResponse responseOpen = keyStoreRestHelper.executePostRequest(index + "/_open", "");
-            assertEquals(RestStatus.OK.getStatus(), responseOpen.getStatusCode());
-        }
-
-        // as admin
-        for (String index : listOfIndexesToTest) {
-            RestHelper.HttpResponse responseClose = sslRestHelper.executePostRequest(index + "/_close", "", allAccessUserHeader);
-            assertEquals(RestStatus.FORBIDDEN.getStatus(), responseClose.getStatusCode());
-
-            RestHelper.HttpResponse responseOpen = sslRestHelper.executePostRequest(index + "/_open", "", allAccessUserHeader);
+            RestHelper.HttpResponse responseOpen = sslRestHelper.executePostRequest(index + "/_open", "", systemIndiceUserHeader);
             assertEquals(RestStatus.OK.getStatus(), responseOpen.getStatusCode());
         }
     }
@@ -356,44 +391,30 @@ public class SystemIndicesTests extends SingleClusterTest {
      ***************************************************************************************************************************/
 
     @Test
-    public void testUpdateIndexSettings() throws Exception {
-        setupSystemIndicesDisabledWithSsl();
+    public void testUpdateIndexSettingsWithSystemIndicesShouldFailAsAdmin() throws Exception {
+        setupWithAdditionalControlsEnabled();
         createTestIndicesAndDocs();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper keyStoreRestHelper = SuperAdminAuthenticationRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         String indexSettings = "{\n" + "    \"index\" : {\n" + "        \"refresh_interval\" : null\n" + "    }\n" + "}";
 
         // as super-admin
-        for (String index : listOfIndexesToTest) {
+        for (String index : systemIndicesToTest) {
             RestHelper.HttpResponse response = keyStoreRestHelper.executePutRequest(index + "/_settings", indexSettings);
             assertEquals(RestStatus.OK.getStatus(), response.getStatusCode());
         }
         // as admin
-        for (String index : listOfIndexesToTest) {
-            RestHelper.HttpResponse response = sslRestHelper.executePutRequest(index + "/_settings", indexSettings, allAccessUserHeader);
-            assertEquals(RestStatus.OK.getStatus(), response.getStatusCode());
-        }
-    }
-
-    @Test
-    public void testUpdateIndexSettingsWithSystemIndices() throws Exception {
-        setupSystemIndicesEnabledWithSsl();
-        createTestIndicesAndDocs();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
-        RestHelper sslRestHelper = sslRestHelper();
-
-        String indexSettings = "{\n" + "    \"index\" : {\n" + "        \"refresh_interval\" : null\n" + "    }\n" + "}";
-
-        // as super-admin
-        for (String index : listOfIndexesToTest) {
-            RestHelper.HttpResponse response = keyStoreRestHelper.executePutRequest(index + "/_settings", indexSettings);
-            assertEquals(RestStatus.OK.getStatus(), response.getStatusCode());
-        }
-        // as admin
-        for (String index : listOfIndexesToTest) {
+        for (String index : systemIndicesToTest) {
             RestHelper.HttpResponse response = sslRestHelper.executePutRequest(index + "/_settings", indexSettings, allAccessUserHeader);
             assertEquals(RestStatus.FORBIDDEN.getStatus(), response.getStatusCode());
+            MatcherAssert.assertThat(
+                response.getBody(),
+                Matchers.containsStringIgnoringCase(
+                    "\"reason\":\"no permissions for [] and User [name=admin_all_access, backend_roles=[], requestedTenant=null]\""
+                )
+            );
+
         }
     }
 
@@ -402,59 +423,32 @@ public class SystemIndicesTests extends SingleClusterTest {
      ************************************************************************************************************************** */
 
     @Test
-    public void testUpdateMappings() throws Exception {
-        setupSystemIndicesDisabledWithSsl();
+    public void testUpdateMappingsWithSystemIndicesShouldFailAsAdmin() throws Exception {
+        setupWithAdditionalControlsEnabled();
         createTestIndicesAndDocs();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper keyStoreRestHelper = SuperAdminAuthenticationRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         String newMappings = "{\"properties\": {" + "\"user_name\": {" + "\"type\": \"text\"" + "}}}";
 
         // as super-admin
-        for (String index : listOfIndexesToTest) {
+        for (String index : systemIndicesToTest) {
             RestHelper.HttpResponse response = keyStoreRestHelper.executePutRequest(index + "/_mapping", newMappings);
             assertEquals(RestStatus.OK.getStatus(), response.getStatusCode());
 
         }
         // as admin
-        for (String index : listOfIndexesToTest) {
-            RestHelper.HttpResponse response = sslRestHelper.executePutRequest(index + "/_mapping", newMappings, allAccessUserHeader);
-            assertEquals(RestStatus.OK.getStatus(), response.getStatusCode());
-        }
-    }
-
-    @Test
-    public void testUpdateMappingsWithSystemIndices() throws Exception {
-        setupSystemIndicesEnabledWithSsl();
-        createTestIndicesAndDocs();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
-        RestHelper sslRestHelper = sslRestHelper();
-
-        String newMappings = "{\"properties\": {" + "\"user_name\": {" + "\"type\": \"text\"" + "}}}";
-
-        // as super-admin
-        for (String index : listOfIndexesToTest) {
-            RestHelper.HttpResponse response = keyStoreRestHelper.executePutRequest(index + "/_mapping", newMappings);
-            assertEquals(RestStatus.OK.getStatus(), response.getStatusCode());
-
-        }
-        // as admin
-        for (String index : listOfIndexesToTest) {
+        for (String index : systemIndicesToTest) {
             RestHelper.HttpResponse response = sslRestHelper.executePutRequest(index + "/_mapping", newMappings, allAccessUserHeader);
             assertEquals(RestStatus.FORBIDDEN.getStatus(), response.getStatusCode());
-            assertTrue(response.getBody().contains(generalErrorMessage));
+            MatcherAssert.assertThat(response.getBody(), Matchers.containsStringIgnoringCase(generalErrorMessage));
         }
     }
 
-    /***************************************************************************************************************************
-     * Create index and Create doc
-     ***************************************************************************************************************************/
-
     @Test
-    public void testCreate() throws Exception {
-        setupSystemIndicesDisabledWithSsl();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
-        RestHelper sslRestHelper = sslRestHelper();
+    public void testCreateIndexWithSystemIndicesShouldSucceedAsSuperAdmin() throws Exception {
+        setupWithAdditionalControlsEnabled();
+        RestHelper keyStoreRestHelper = SuperAdminAuthenticationRestHelper();
 
         String indexSettings = "{\n"
             + "    \"settings\" : {\n"
@@ -465,34 +459,22 @@ public class SystemIndicesTests extends SingleClusterTest {
             + "    }\n"
             + "}";
 
-        // as super-admin
-        for (String index : listOfIndexesToTest) {
+        for (String index : systemIndicesToTest) {
             RestHelper.HttpResponse responseIndex = keyStoreRestHelper.executePutRequest(index, indexSettings);
             assertEquals(RestStatus.OK.getStatus(), responseIndex.getStatusCode());
 
             RestHelper.HttpResponse response = keyStoreRestHelper.executePostRequest(index + "/_doc", "{\"foo\": \"bar\"}");
-            assertTrue(response.getStatusCode() == RestStatus.CREATED.getStatus());
+            assertEquals(RestStatus.CREATED.getStatus(), response.getStatusCode());
+            MatcherAssert.assertThat(response.getBody(), Matchers.containsStringIgnoringCase("\"result\":\"created\""));
+
         }
 
-        for (String index : listOfIndexesToTest) {
-            keyStoreRestHelper.executeDeleteRequest(index);
-        }
-
-        // as admin
-        for (String index : listOfIndexesToTest) {
-            RestHelper.HttpResponse responseIndex = sslRestHelper.executePutRequest(index, indexSettings, allAccessUserHeader);
-            assertEquals(RestStatus.OK.getStatus(), responseIndex.getStatusCode());
-
-            RestHelper.HttpResponse response = sslRestHelper.executePostRequest(index + "/_doc", "{\"foo\": \"bar\"}", allAccessUserHeader);
-            assertTrue(response.getStatusCode() == RestStatus.CREATED.getStatus());
-        }
     }
 
     @Test
-    public void testCreateWithSystemIndices() throws Exception {
-        setupSystemIndicesEnabledWithSsl();
-        RestHelper keyStoreRestHelper = keyStoreRestHelper();
-        RestHelper sslRestHelper = sslRestHelper();
+    public void testCreateIndexWithSystemIndicesShouldFailAsAdmin() throws Exception {
+        setupWithAdditionalControlsEnabled();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
 
         String indexSettings = "{\n"
             + "    \"settings\" : {\n"
@@ -503,26 +485,52 @@ public class SystemIndicesTests extends SingleClusterTest {
             + "    }\n"
             + "}";
 
-        // as super-admin
-        for (String index : listOfIndexesToTest) {
-            RestHelper.HttpResponse responseIndex = keyStoreRestHelper.executePutRequest(index, indexSettings);
-            assertEquals(RestStatus.OK.getStatus(), responseIndex.getStatusCode());
-
-            RestHelper.HttpResponse response = keyStoreRestHelper.executePostRequest(index + "/_doc", "{\"foo\": \"bar\"}");
-            assertTrue(response.getStatusCode() == RestStatus.CREATED.getStatus());
-        }
-
-        for (String index : listOfIndexesToTest) {
-            keyStoreRestHelper.executeDeleteRequest(index);
-        }
-
-        // as admin
-        for (String index : listOfIndexesToTest) {
+        for (String index : systemIndicesToTest) {
             RestHelper.HttpResponse responseIndex = sslRestHelper.executePutRequest(index, indexSettings, allAccessUserHeader);
-            assertEquals(RestStatus.OK.getStatus(), responseIndex.getStatusCode());
+            assertEquals(RestStatus.FORBIDDEN.getStatus(), responseIndex.getStatusCode());
+            MatcherAssert.assertThat(
+                responseIndex.getBody(),
+                Matchers.containsStringIgnoringCase(
+                    "{\"root_cause\":[{\"type\":\"security_exception\",\"reason\":\"no permissions for [] and User [name=admin_all_access, backend_roles=[], requestedTenant=null]\"}"
+                )
+            );
 
             RestHelper.HttpResponse response = sslRestHelper.executePostRequest(index + "/_doc", "{\"foo\": \"bar\"}", allAccessUserHeader);
-            assertTrue(response.getStatusCode() == RestStatus.FORBIDDEN.getStatus());
+            assertEquals(RestStatus.FORBIDDEN.getStatus(), response.getStatusCode());
+            MatcherAssert.assertThat(
+                responseIndex.getBody(),
+                Matchers.containsStringIgnoringCase(
+                    "{\"root_cause\":[{\"type\":\"security_exception\",\"reason\":\"no permissions for [] and User [name=admin_all_access, backend_roles=[], requestedTenant=null]\"}]"
+                )
+            );
+
+        }
+    }
+
+    @Test
+    public void testCreateIndexWithSystemIndicesShouldSucceedWithsystemIndiceRole() throws Exception {
+        setupWithAdditionalControlsEnabled();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
+
+        String indexSettings = "{\n"
+            + "    \"settings\" : {\n"
+            + "        \"index\" : {\n"
+            + "            \"number_of_shards\" : 3, \n"
+            + "            \"number_of_replicas\" : 2 \n"
+            + "        }\n"
+            + "    }\n"
+
+            + "}";
+        for (String index : systemIndicesToTest) {
+            RestHelper.HttpResponse responseIndex = sslRestHelper.executePutRequest(index, indexSettings, systemIndiceUserHeader);
+            assertEquals(RestStatus.OK.getStatus(), responseIndex.getStatusCode());
+
+            RestHelper.HttpResponse response = sslRestHelper.executePostRequest(
+                index + "/_doc",
+                "{\"foo\": \"bar\"}",
+                systemIndiceUserHeader
+            );
+            assertEquals(RestStatus.CREATED.getStatus(), response.getStatusCode());
         }
     }
 
@@ -531,30 +539,22 @@ public class SystemIndicesTests extends SingleClusterTest {
      ***************************************************************************************************************************/
     @Test
     public void testSnapshotWithSystemIndices() throws Exception {
-        setupSystemIndicesEnabledWithSsl();
+        setupWithAdditionalControlsEnabled();
         createTestIndicesAndDocs();
         createSnapshots();
 
         try (Client tc = getClient()) {
-            for (String index : listOfIndexesToTest) {
+            for (String index : systemIndicesToTest) {
                 tc.admin().indices().close(new CloseIndexRequest(index)).actionGet();
             }
         }
 
-        RestHelper sslRestHelper = sslRestHelper();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
         // as admin
-        for (String index : listOfIndexesToTest) {
+        for (String index : systemIndicesToTest) {
             assertEquals(
-                HttpStatus.SC_OK,
-                sslRestHelper.executeGetRequest("_snapshot/" + index + "/" + index + "_1", allAccessUserHeader).getStatusCode()
-            );
-            assertEquals(
-                HttpStatus.SC_OK,
-                sslRestHelper.executePostRequest(
-                    "_snapshot/" + index + "/" + index + "_1/_restore?wait_for_completion=true",
-                    "{ \"rename_pattern\": \"(.+)\", \"rename_replacement\": \"restored_index_with_global_state_$1\" }",
-                    allAccessUserHeader
-                ).getStatusCode()
+                HttpStatus.SC_UNAUTHORIZED,
+                sslRestHelper.executeGetRequest("_snapshot/" + index + "/" + index + "_1").getStatusCode()
             );
             assertEquals(
                 HttpStatus.SC_FORBIDDEN,
@@ -564,6 +564,54 @@ public class SystemIndicesTests extends SingleClusterTest {
                     allAccessUserHeader
                 ).getStatusCode()
             );
+            assertEquals(
+                HttpStatus.SC_OK,
+                sslRestHelper.executePostRequest(
+                    "_snapshot/" + index + "/" + index + "_1/_restore?wait_for_completion=true",
+                    "{ \"rename_pattern\": \"(.+)\", \"rename_replacement\": \"restored_index_with_global_state_$1\" }",
+                    allAccessUserHeader
+                ).getStatusCode()
+            );
         }
     }
+
+    @Test
+    public void testsystemIndiceIndexAccessShouldSucceedForsystemIndiceUser() throws Exception {
+        setupWithAdditionalControlsEnabled();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
+
+        RestHelper.HttpResponse response = sslRestHelper.executePostRequest(
+            ".system_index_a" + "/_doc",
+            "{\"foo\": \"bar\"}",
+            systemIndiceUserHeader
+        );
+        assertEquals(RestStatus.CREATED.getStatus(), response.getStatusCode());
+
+        response = sslRestHelper.executeGetRequest(".system_index_a", systemIndiceUserHeader);
+        Assert.assertEquals(HttpStatus.SC_OK, response.getStatusCode());
+        MatcherAssert.assertThat(response.getBody(), Matchers.containsStringIgnoringCase("\"version\":{\"created\""));
+    }
+
+    @Test
+    public void testsystemIndiceIndexAccessShouldFailAsDifferentsystemIndiceUser() throws Exception {
+        setupWithAdditionalControlsEnabled();
+        RestHelper sslRestHelper = normalAuthenticationRestHelper();
+
+        RestHelper.HttpResponse response = sslRestHelper.executePostRequest(
+            ".system_index_a" + "/_doc",
+            "{\"foo\": \"bar\"}",
+            systemIndiceUserCHeader
+        );
+        assertEquals(RestStatus.FORBIDDEN.getStatus(), response.getStatusCode());
+
+        response = sslRestHelper.executeGetRequest(".system_index_a", systemIndiceUserCHeader);
+        Assert.assertEquals(HttpStatus.SC_FORBIDDEN, response.getStatusCode());
+        MatcherAssert.assertThat(
+            response.getBody(),
+            Matchers.containsStringIgnoringCase(
+                "{\"error\":{\"root_cause\":[{\"type\":\"security_exception\",\"reason\":\"no permissions for [indices:admin/get] and User [name=systemIndices_user_c, backend_roles=[], requestedTenant=null]\"}]"
+            )
+        );
+    }
+    // CS-ENFORCE-SINGLE
 }
