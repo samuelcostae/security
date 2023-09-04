@@ -1,10 +1,12 @@
 /*
- * Copyright OpenSearch Contributors
  * SPDX-License-Identifier: Apache-2.0
  *
  * The OpenSearch Contributors require contributions made to
  * this file be licensed under the Apache-2.0 license or a
  * compatible open source license.
+ *
+ * Modifications Copyright OpenSearch Contributors. See
+ * GitHub history for details.
  */
 
 package org.opensearch.security.securityconf;
@@ -12,15 +14,24 @@ package org.opensearch.security.securityconf;
 import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
 import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.security.resolver.IndexResolverReplacer;
+import org.opensearch.security.support.WildcardMatcher;
 import org.opensearch.security.user.User;
 
+import java.util.Collection;
 import java.util.Set;
 
 public interface SecurityRole {
+
+    void addClusterPerms(Collection<String> permittedClusterActions);
+
+    void addTenant(ConfigModelV6.Tenant tenant);
+
+    void addIndexPattern(IndexPattern indexPattern);
+
     boolean impliesClusterPermission(String action);
 
-    // get indices which are permitted for the given types and actions
-    // dnfof + opensearchDashboards special only
+    String getName();
+
     Set<String> getAllResolvedPermittedIndices(
         IndexResolverReplacer.Resolved resolved,
         User user,
@@ -29,11 +40,9 @@ public interface SecurityRole {
         ClusterService cs
     );
 
-    @Override
-    String toString();
+    Set<String> getClusterPerms();
 
     Set<IndexPattern> getIpatterns();
 
-    String getName();
-
+    WildcardMatcher getClusterPermsMatchers();
 }

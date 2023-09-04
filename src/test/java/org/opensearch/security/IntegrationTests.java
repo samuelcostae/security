@@ -498,12 +498,15 @@ public class IntegrationTests extends SingleClusterTest {
         }
 
         RestHelper rh = nonSslRestHelper();
-        HttpResponse res = rh.executePostRequest(
-            "/vulcango*/_delete_by_query?refresh=true&wait_for_completion=true&pretty=true",
-            "{\"query\" : {\"match_all\" : {}}}",
-            encodeBasicHeader("nagilum", "nagilum")
+        HttpResponse res;
+        Assert.assertEquals(
+            HttpStatus.SC_OK,
+            (res = rh.executePostRequest(
+                "/vulcango*/_delete_by_query?refresh=true&wait_for_completion=true&pretty=true",
+                "{\"query\" : {\"match_all\" : {}}}",
+                encodeBasicHeader("nagilum", "nagilum")
+            )).getStatusCode()
         );
-        Assert.assertEquals(HttpStatus.SC_OK, res.getStatusCode());
         Assert.assertTrue(res.getBody().contains("\"deleted\" : 3"));
 
     }
@@ -998,7 +1001,7 @@ public class IntegrationTests extends SingleClusterTest {
 
     @Test
     public void testSecurityIndexSecurity() throws Exception {
-        setup(Settings.builder().build());
+        setup();
         final RestHelper rh = nonSslRestHelper();
 
         HttpResponse res = rh.executePutRequest(

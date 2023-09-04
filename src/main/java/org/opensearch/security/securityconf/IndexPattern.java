@@ -1,10 +1,12 @@
 /*
- * Copyright OpenSearch Contributors
  * SPDX-License-Identifier: Apache-2.0
  *
  * The OpenSearch Contributors require contributions made to
  * this file be licensed under the Apache-2.0 license or a
  * compatible open source license.
+ *
+ * Modifications Copyright OpenSearch Contributors. See
+ * GitHub history for details.
  */
 
 package org.opensearch.security.securityconf;
@@ -18,23 +20,15 @@ import java.util.List;
 import java.util.Set;
 
 public interface IndexPattern {
-    IndexPattern addFlsFields(List<String> flsFields);
+    void addFlsFields(List<String> flsFields);
 
-    IndexPattern addMaskedFields(List<String> maskedFields);
+    void addMaskedFields(List<String> maskedFields);
 
-    WildcardMatcher getPerms();
+    void setDlsQuery(String dls);
 
-    Set<String> getStringPerm();
+    void addTypePerms(TypePerm typePerm);
 
-    WildcardMatcher getNonWildCardPerms();
-
-    String getDlsQuery(User user);
-
-    Set<String> concreteIndexNames(User user, IndexNameExpressionResolver resolver, ClusterService cs);
-
-    Set<String> getFls();
-
-    Set<String> getMaskedFields();
+    void addPerm(Set<String> strings);
 
     boolean hasDlsQuery();
 
@@ -42,11 +36,25 @@ public interface IndexPattern {
 
     boolean hasMaskedFields();
 
+    String getDlsQuery(User user);
+
     String getUnresolvedIndexPattern(User user);
+
+    Set<String> getPermsAsCollection();
+
+    Set<String> concreteIndexNames(User user, IndexNameExpressionResolver resolver, ClusterService cs);
+
+    Set<String> getFls();
+
+    Set<String> getMaskedFields();
 
     Set<String> attemptResolveIndexNames(User user, IndexNameExpressionResolver resolver, ClusterService cs);
 
     Set<String> getResolvedIndexPattern(User user, IndexNameExpressionResolver resolver, ClusterService cs);
 
     Set<TypePerm> getTypePerms();
+
+    WildcardMatcher getPerms();
+
+    WildcardMatcher getNonWildCardPerms();
 }

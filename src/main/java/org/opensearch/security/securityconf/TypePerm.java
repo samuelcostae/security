@@ -1,10 +1,12 @@
 /*
- * Copyright OpenSearch Contributors
  * SPDX-License-Identifier: Apache-2.0
  *
  * The OpenSearch Contributors require contributions made to
  * this file be licensed under the Apache-2.0 license or a
  * compatible open source license.
+ *
+ * Modifications Copyright OpenSearch Contributors. See
+ * GitHub history for details.
  */
 
 package org.opensearch.security.securityconf;
@@ -23,11 +25,18 @@ public class TypePerm {
         this.typeMatcher = WildcardMatcher.ANY;
     }
 
-    protected TypePerm addPerms(Collection<String> perms) {
+    public WildcardMatcher getTypeMatcher() {
+        return typeMatcher;
+    }
+
+    public WildcardMatcher getPermsMatcher() {
+        return WildcardMatcher.from(perms);
+    }
+
+    protected void addPerms(Collection<String> perms) {
         if (perms != null) {
             this.perms.addAll(perms);
         }
-        return this;
     }
 
     @Override
@@ -56,15 +65,6 @@ public class TypePerm {
 
     @Override
     public String toString() {
-        return System.lineSeparator() + "             typePattern=" + typeMatcher + System.lineSeparator() + "             perms=" + perms;
+        return "TypePerm{" + "typeMatcher=" + typeMatcher + ", perms=" + perms + '}';
     }
-
-    public WildcardMatcher getTypeMatcher() {
-        return typeMatcher;
-    }
-
-    public WildcardMatcher getPerms() {
-        return WildcardMatcher.from(perms);
-    }
-
 }
